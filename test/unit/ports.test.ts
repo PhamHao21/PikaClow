@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { detectApp, detectProject, isSystemProcess, parseLsof, parseNetstat, parseSs } from "../../src/core/ports.js";
+import { detectApp, detectProject, isSystemProcess, parseLsof, parseNetstat, parseProcNet, parseSs } from "../../src/core/ports.js";
 
 const NETSTAT = `
 Active Connections
@@ -72,4 +72,21 @@ test("system processes are recognized", () => {
   assert.ok(isSystemProcess(4, "System"));
   assert.ok(isSystemProcess(1364, "svchost.exe"));
   assert.ok(!isSystemProcess(4242, "node.exe"));
+});
+
+test("parseProcNet reads listening sockets from /proc/net/tcp and tcp6", () => {
+  const v4 = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 41234 1 0
+   1: 00000000:1435 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 41235 1 0
+   2: 0100007F:0BB8 0100007F:D2F0 01 00000000:00000000 00:00000000 00000000  1000        0 0 1 0
+`;
+  assert.deepEqual(parseProcNet(v4), [
+    { protocol: "tcp", address: "127.0.0.1", port: 3000, pid: 41234 },
+    { protocol: "tcp", address: "0.0.0.0", port: 5173, pid: 41235 },
+  ]);
+  const v6 = `  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000001000000:1538 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000   999        0 5001 1 0
+   1: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 5002 1 0
+`;
+  assert.deepEqual(parseProcNet(v6).map((s) => [s.address, s.port]), [["::1", 5432], ["::", 80]]);
 });

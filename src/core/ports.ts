@@ -1,5 +1,6 @@
+import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import net from "node:net";
-import { dirname } from "node:path";
+import path from "node:path";
 import { capture, isLinux, isWindows, run, which } from "./exec.js";
 import { pwsh } from "./win/pwsh.js";
 
@@ -99,6 +100,77 @@ export function parseSs(text: string): RawSocket[] {
   return out;
 }
 
+// Kernel order: each 32-bit word of the address is little-endian hex.
+function procNetAddress(hex: string): string {
+  const words = hex.match(/.{8}/g) ?? [];
+  const bytes = words.flatMap((w) => (w.match(/../g) ?? []).reverse().map((b) => parseInt(b, 16)));
+  if (bytes.length === 4) return bytes.join(".");
+  const groups: string[] = [];
+  for (let i = 0; i < bytes.length; i += 2) groups.push((((bytes[i] ?? 0) << 8) | (bytes[i + 1] ?? 0)).toString(16));
+  // The URL parser prints IPv6 in canonical compressed form ("::1", "::").
+  return new URL(`http://[${groups.join(":")}]`).hostname.slice(1, -1);
+}
+
+/** Parses `/proc/net/tcp` or `/proc/net/tcp6` (Linux without lsof/ss). `pid` is the socket inode here. */
+export function parseProcNet(text: string): RawSocket[] {
+  const out: RawSocket[] = [];
+  for (const line of text.split("\n").slice(1)) {
+    const f = line.trim().split(/\s+/);
+    if (f[3] !== "0A") continue; // 0A = TCP_LISTEN
+    const [addr, portHex] = (f[1] ?? "").split(":");
+    if (!addr || !portHex) continue;
+    out.push({ protocol: "tcp", address: procNetAddress(addr), port: parseInt(portHex, 16), pid: Number(f[9] ?? 0) });
+  }
+  return out;
+}
+
+/** Maps socket inodes to the pid that owns them, by walking `/proc/<pid>/fd`. */
+function procSocketOwners(inodes: Set<number>): Map<number, { pid: number; name: string }> {
+  const owners = new Map<number, { pid: number; name: string }>();
+  for (const dir of readdirSync("/proc")) {
+    if (!PID_RE.test(dir)) continue;
+    let fds: string[];
+    try {
+      fds = readdirSync(`/proc/${dir}/fd`);
+    } catch {
+      continue; // another user's process
+    }
+    for (const fd of fds) {
+      let link: string;
+      try {
+        link = readlinkSync(`/proc/${dir}/fd/${fd}`);
+      } catch {
+        continue;
+      }
+      const inode = Number(/^socket:\[(\d+)\]$/.exec(link)?.[1] ?? 0);
+      if (!inodes.has(inode) || owners.has(inode)) continue;
+      let name = "";
+      try {
+        name = readFileSync(`/proc/${dir}/comm`, "utf8").trim();
+      } catch {}
+      owners.set(inode, { pid: Number(dir), name });
+    }
+    if (owners.size === inodes.size) break;
+  }
+  return owners;
+}
+
+function procSockets(): RawSocket[] {
+  const read = (p: string) => {
+    try {
+      return readFileSync(p, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const sockets = [...parseProcNet(read("/proc/net/tcp")), ...parseProcNet(read("/proc/net/tcp6"))];
+  const owners = procSocketOwners(new Set(sockets.map((s) => s.pid)));
+  return sockets.map((s) => {
+    const o = owners.get(s.pid);
+    return { ...s, pid: o?.pid ?? 0, process: o?.name ?? "" };
+  });
+}
+
 // ── Classification ─────────────────────────────────────────────────────────────
 const SYSTEM_PROCS = new Set(
   [
@@ -183,7 +255,9 @@ export function detectProject(command: string): string {
   }
   for (const p of paths) {
     if (/\.(m?js|cjs|ts|py|rb|php|jar)$/i.test(p.trim()) && !/[\\/](Program Files|AppData|usr[\\/]lib|usr[\\/]local[\\/]lib)[\\/]/i.test(p)) {
-      return dirname(p.trim());
+      const file = p.trim();
+      // Pick the path flavour from the path itself, not from the OS we run on.
+      return /^[A-Za-z]:\\/.test(file) ? path.win32.dirname(file) : path.posix.dirname(file);
     }
   }
   return "";
@@ -232,6 +306,15 @@ async function unixCommands(pids: number[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
   const ids = pids.filter((p) => p > 0);
   if (!ids.length) return map;
+  if (isLinux) {
+    // Straight from /proc: works even where ps is not installed (slim containers).
+    for (const pid of ids) {
+      try {
+        map.set(pid, readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean).join(" "));
+      } catch {}
+    }
+    return map;
+  }
   const out = await capture("ps", ["-o", "pid=,args=", "-p", ids.join(",")], { timeout: 5000 });
   for (const line of (out ?? "").split("\n")) {
     const m = /^\s*(\d+)\s+(.*)$/.exec(line);
@@ -258,6 +341,7 @@ async function rawSockets(includeUdp: boolean): Promise<RawSocket[]> {
     const r = await run("ss", ["-ltnpH"], { timeout: 10000 });
     return parseSs(r.stdout);
   }
+  if (isLinux) return procSockets();
   throw new Error("Neither lsof nor ss is available");
 }
 

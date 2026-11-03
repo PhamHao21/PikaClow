@@ -22,7 +22,8 @@
     "test:e2e": "node scripts/run-tests.mjs e2e",
     "test:all": "node scripts/run-tests.mjs unit e2e",
     "snap": "tsx scripts/snap.ts",
-    "prepublishOnly": "npm run typecheck && npm run build && npm test",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test",
     "screenshots": "tsx scripts/screenshots.ts"
   },
   "keywords": [
