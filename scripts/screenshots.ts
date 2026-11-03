@@ -45,6 +45,13 @@ git("commit", "-qm", "chore: init");
 file(join(app, "src", "auth", "login.ts"), "export const login = () => {}\n");
 file(join(app, "src", "auth", "session.ts"), "export const session = {}\n");
 git("add", ".");
+// A second project whose dev server wants the port my-app already holds.
+const web = join(demo, "web");
+file(join(web, "package.json"), JSON.stringify({ name: "web", scripts: { dev: "vite" }, devDependencies: { vite: "^6.0.0" } }));
+file(join(web, "package-lock.json"), JSON.stringify({ name: "web", lockfileVersion: 3 }));
+file(join(web, "node_modules", ".keep"), "");
+// The last command that failed in the shell, as the hook records it.
+file(join(home, "last-failed"), ["1", "powershell", app, "npm run build"].join("\n") + "\n");
 
 const env = {
   PIKACLOW_HOME: home,
@@ -123,6 +130,16 @@ try {
     s.press("space");
     await sleep(400);
   }, { cols: 110, rows: 17 }, app, "pikaclow clean ~/code");
+
+  await shot("dev", ["dev"], async (s) => {
+    await s.waitFor("What now?", 30000);
+    await sleep(300);
+  }, { cols: 100, rows: 20 }, web);
+
+  await shot("fix", ["fix"], async (s) => {
+    await s.waitFor("What should PikaClow do?", 20000);
+    await sleep(300);
+  }, { cols: 100, rows: 17 });
 
   await shot("models", ["models"], async (s) => {
     await s.waitFor("Download or switch the default model?", 30000);

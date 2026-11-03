@@ -26,6 +26,7 @@
 
 ```bash
 npm install -g pikaclow
+pikaclow init      # once: lets PikaClow catch failed commands (Alt+Z)
 pikaclow
 ```
 
@@ -34,6 +35,14 @@ machine, or any OpenAI-compatible API (LM Studio, OpenRouter, Groq, Gemini, Open
 
 ## What makes it different
 
+- **Press Alt+Z when a command fails.** After `pikaclow init`, PowerShell, bash, zsh and fish remember the last
+  command that failed and print a one-line hint under it. Alt+Z (or `pikaclow fix`) runs it again, reads the real
+  error and explains the fix, and when the cause is a busy port it frees the port and retries. The hook is a few
+  lines of shell: no Node process per prompt, nothing in the background, and risky commands are never re-run
+  without asking.
+- **`pikaclow dev` just starts the project.** It picks the right package manager, installs dependencies if they
+  are missing, and when port 5173 is held by *Vite from another project* it says so and offers to stop it or move
+  to 5174. If the server crashes, it offers to explain why.
 - **Pixel art all the way.** The logo, section titles, frames, meters, menus, buttons and status bar are drawn as
   crisp pixel art with half-block characters, in a warm Pikachu-yellow palette (with fallbacks for old consoles,
   light themes and plain ASCII).
@@ -63,6 +72,9 @@ machine, or any OpenAI-compatible API (LM Studio, OpenRouter, Groq, Gemini, Open
 | Command | What it does |
 | --- | --- |
 | `pikaclow` | Interactive mode (prompt, `/` menu, `!shell`, AI chat) |
+| `pikaclow init [shell]` | Shell integration: remembers failed commands, Alt+Z explains them · `--uninstall` · `--print` |
+| `pikaclow fix` | Re-run and explain the last command that failed · `--yes` · `--no-ai` |
+| `pikaclow dev [script]` | Start the dev server; clears port clashes, installs missing dependencies · `--port` |
 | `pikaclow dash` · `top` | Live dashboard: CPU, memory, network, disks, battery, processes (sort, group, filter, kill) |
 | `pikaclow ports [port]` | Listening ports with app/project detection · `--kill` · `--pick` · `--all` · `--json` |
 | `pikaclow clean [path]` | Find and delete regenerable dev folders · `--dry-run` · `--caches` for npm/pnpm/yarn/pip caches |
@@ -75,6 +87,14 @@ machine, or any OpenAI-compatible API (LM Studio, OpenRouter, Groq, Gemini, Open
 | `pikaclow setup` | Language, AI provider and model, commit language |
 
 Every command has `--help`. Global flags: `--lang en|vi`, `--ascii`, `--no-color`.
+
+### Fix the last failed command (Alt+Z)
+
+<img src="docs/fix.svg" alt="pikaclow fix" width="760">
+
+### Dev server with a busy port
+
+<img src="docs/dev.svg" alt="pikaclow dev" width="760">
 
 ### Ports
 
@@ -129,6 +149,8 @@ Settings live in `~/.pikaclow/config.json` (created by `setup`). Useful environm
 | `PIKACLOW_NO_ANIM=1` | Skip the logo animation |
 | `NO_COLOR=1` | Disable colors |
 | `PIKACLOW_HOME` | Use another folder than `~/.pikaclow` |
+| `PIKACLOW_HINT=0` | Keep the shell integration but hide the hint line after a failure |
+| `PIKACLOW_NO_UPDATE_CHECK=1` | Never check npm for a newer version |
 | `PIKACLOW_DEBUG=1` | Show stack traces |
 
 ## Safety
@@ -136,6 +158,8 @@ Settings live in `~/.pikaclow/config.json` (created by `setup`). Useful environm
 - `clean` deletes permanently, but only folders tools can regenerate, and always asks first (unless `--yes`).
 - `ports --kill` refuses to stop OS processes and asks before stopping anything.
 - `sh` never runs a command without your confirmation; dangerous ones need you to type `yes`.
+- `fix` re-runs only what you choose; commands flagged as risky are never re-run automatically.
+- `init` adds one marked block to your shell profile and `init --uninstall` removes exactly that block.
 - Nothing is sent anywhere unless you configure a remote AI API. With Ollama everything stays on your machine.
 
 ## Development

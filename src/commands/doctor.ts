@@ -5,9 +5,12 @@ import { createProvider } from "../core/ai/index.js";
 import type { Ctx } from "../core/context.js";
 import { capture, isWindows, which } from "../core/exec.js";
 import { formatBytes } from "../core/format.js";
+import { FIX_KEY, hookShellFor, isHookInstalled } from "../core/hook.js";
 import { listPorts } from "../core/ports.js";
+import { detectShell } from "../core/shell.js";
 import { disks } from "../core/system/sources.js";
 import { osName } from "../core/system/info.js";
+import { availableUpdate } from "../core/update.js";
 import { pwsh } from "../core/win/pwsh.js";
 import { t } from "../i18n/index.js";
 import { cmd, titleBlock } from "../ui/components.js";
@@ -17,6 +20,7 @@ import { isTTY } from "../ui/terminal.js";
 import { c, P, sym } from "../ui/theme.js";
 import { spinnerFrames } from "../ui/spinner.js";
 import { fit } from "../ui/text.js";
+import { VERSION } from "../version.js";
 
 type Level = "ok" | "warn" | "fail" | "info";
 
@@ -51,6 +55,27 @@ function checks(): Check[] {
         if (major < 20) return { level: "fail", detail: t("doctor.nodeOld", { v: process.version }), fix: "https://nodejs.org" };
         if (major % 2 === 1) return { level: "warn", detail: t("doctor.nodeOdd", { v: process.version }) };
         return { level: "ok", detail: process.version };
+      },
+    },
+    {
+      id: "pikaclow",
+      group: "runtime",
+      label: t("doctor.version"),
+      run: async () => {
+        const latest = availableUpdate();
+        if (latest) return { level: "warn", detail: t("doctor.updateAvailable", { v: VERSION, latest }), fix: "npm install -g pikaclow@latest" };
+        return { level: "ok", detail: VERSION };
+      },
+    },
+    {
+      id: "hook",
+      group: "runtime",
+      label: t("doctor.hook"),
+      run: async () => {
+        const shell = hookShellFor(detectShell().kind);
+        if (!shell) return null;
+        if (await isHookInstalled(shell)) return { level: "ok", detail: t("doctor.hookOn", { key: FIX_KEY }) };
+        return { level: "info", detail: t("doctor.hookOff"), fix: "pikaclow init" };
       },
     },
     {

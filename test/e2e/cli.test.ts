@@ -35,7 +35,7 @@ test("help lists the commands", async () => {
   const s = new Screen(["--help"], { env: env() });
   assert.equal(await s.waitExit(), 0);
   const text = s.allText();
-  for (const cmd of ["dash", "ports [port]", "clean [path]", "doctor", "ask <question>", "sh <task>", "commit", "models", "setup"]) assert.ok(text.includes(cmd), cmd);
+  for (const cmd of ["dev [script]", "fix", "init [shell]", "dash", "ports [port]", "clean [path]", "doctor", "ask <question>", "sh <task>", "commit", "models", "setup"]) assert.ok(text.includes(cmd), cmd);
 });
 
 test("version and unknown-command suggestion", async () => {

@@ -1,6 +1,6 @@
 {
   "name": "pikaclow",
-  "version": "1.0.0",
+  "version": "0.9.0",
   "description": "Electric terminal sidekick: live system dashboard, port finder/killer, safe dev-junk cleaner, dev-environment doctor and local-AI helpers (commit messages, shell commands, error explanations).",
   "type": "module",
   "bin": {

@@ -19,6 +19,8 @@ import { getProvider, streamAnswer } from "./ai-common.js";
 export interface ExplainOptions {
   ai?: boolean;
   always?: boolean;
+  /** Shell to run the command in (the one that recorded it), instead of the detected one. */
+  shell?: string;
 }
 
 async function readStdin(limit = 400_000): Promise<string> {
@@ -70,7 +72,12 @@ async function showKnown(found: KnownError[], ctx: Ctx): Promise<{ freedPort: bo
 }
 
 export async function explainCommand(words: string[], opts: ExplainOptions, ctx: Ctx, command?: string[]): Promise<void> {
-  const shell = detectShell();
+  await explain(words, opts, ctx, command);
+}
+
+/** Same as explainCommand; resolves to true when a command was run and succeeded. */
+export async function explain(words: string[], opts: ExplainOptions, ctx: Ctx, command?: string[]): Promise<boolean> {
+  const shell = detectShell(opts.shell);
   let output = "";
   let exitCode: number | null = null;
   let cmdLine = "";
@@ -91,7 +98,7 @@ export async function explainCommand(words: string[], opts: ExplainOptions, ctx:
     if (exitCode === 0 && !opts.always) {
       print(status.ok(t("explain.succeeded")));
       blank();
-      return;
+      return true;
     }
     print(status.fail(t("explain.failedWith", { code: String(exitCode ?? "?") })));
   } else if (!process.stdin.isTTY) {
@@ -105,12 +112,12 @@ export async function explainCommand(words: string[], opts: ExplainOptions, ctx:
     print("   " + cmd("npm test 2>&1 | pikaclow explain"));
     print("   " + cmd('pikaclow explain "Error: listen EADDRINUSE :::3000"'));
     blank();
-    return;
+    return false;
   }
 
   if (!output.trim()) {
     print(status.warn(t("explain.noOutput")));
-    return;
+    return false;
   }
 
   blank();
@@ -120,13 +127,13 @@ export async function explainCommand(words: string[], opts: ExplainOptions, ctx:
   // A port was freed: offer to run the command again right away.
   if (freedPort && cmdLine && isInteractive()) {
     const again = await confirm({ message: t("explain.rerun", { cmd: cmdLine }), initial: true, signal: ctx.signal });
-    if (!isCancel(again) && again) return explainCommand([], opts, ctx, command);
+    if (!isCancel(again) && again) return explain([], opts, ctx, command);
   }
 
   if (opts.ai === false) {
     if (!known.length) print(status.hint(t("explain.noKnown")));
     blank();
-    return;
+    return false;
   }
   try {
     const provider = await getProvider(true);
@@ -158,4 +165,5 @@ export async function explainCommand(words: string[], opts: ExplainOptions, ctx:
     } else throw e;
   }
   blank();
+  return false;
 }

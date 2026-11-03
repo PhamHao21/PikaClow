@@ -7,10 +7,12 @@ import { historyPath, loadConfig, saveConfig } from "../core/config.js";
 import type { Ctx } from "../core/context.js";
 import { tildify } from "../core/format.js";
 import { currentBranch, findRepoRoot } from "../core/git.js";
+import { FIX_KEY, writeLastFailed } from "../core/hook.js";
 import { detectShell } from "../core/shell.js";
+import { availableUpdate } from "../core/update.js";
 import { getLang, setLang, t, type MessageKey } from "../i18n/index.js";
 import { ansi } from "../ui/ansi.js";
-import { cmd } from "../ui/components.js";
+import { cmd, status } from "../ui/components.js";
 import { reportError } from "../ui/errors.js";
 import { holdKeyboard, isCtrlC, isEnter, isEscape, pushKeys, type Key } from "../ui/keys.js";
 import { LineEditor } from "../ui/line-editor.js";
@@ -26,8 +28,11 @@ import { askCommand } from "./ask.js";
 import { cleanCommand } from "./clean.js";
 import { commitCommand } from "./commit.js";
 import { dashCommand } from "./dash.js";
+import { devCommand } from "./dev.js";
 import { doctorCommand } from "./doctor.js";
 import { explainCommand } from "./explain.js";
+import { fixCommand } from "./fix.js";
+import { initCommand } from "./init.js";
 import { modelsCommand } from "./models.js";
 import { portsCommand } from "./ports.js";
 import { runCommandLine, shCommand } from "./sh.js";
@@ -70,12 +75,17 @@ function printTips(): void {
   print(" " + c.brand(sym("bullet")) + " " + c.bold(t("home.tipsTitle")));
   const tips: [MessageKey, Record<string, string>][] = [
     ["home.tip1", {}],
-    ["home.tip2", { cmds: ["/dash", "/ports", "/clean", "/commit", "/doctor"].map((x) => c.brand(x)).join(" ") }],
+    ["home.tip2", { cmds: ["/dev", "/fix", "/dash", "/ports", "/clean"].map((x) => c.brand(x)).join(" ") }],
     ["home.tip3", { example: cmd("!git status") }],
     ["home.tip4", { setup: cmd("/setup"), keys: c.keycap("Ctrl+C") }],
   ];
   tips.forEach(([key, vars], i) => print(" " + c.keycap(String(i + 1)) + " " + t(key, vars)));
   blank();
+  const latest = availableUpdate();
+  if (latest) {
+    print(" " + status.info(t("update.available", { latest, current: VERSION })) + "  " + c.muted(t("update.how", { cmd: cmd("npm install -g pikaclow@latest") })));
+    blank();
+  }
 }
 
 // ── Commands available as /slash ───────────────────────────────────────────────
@@ -110,6 +120,9 @@ const has = (p: Parsed, ...names: string[]) => names.some((n) => p.flags.has(n))
 
 const COMMANDS: SlashCommand[] = [
   { name: "help", aliases: ["?"], desc: "home.cmd.help", run: async (_p, _ctx, repl) => repl.help() },
+  { name: "dev", args: "[script] [--port n]", desc: "home.cmd.dev", run: (p, ctx) => devCommand(p.args.find((a) => !/^d+$/.test(a)), { port: /(?:--port|-p)[=s]+(d+)/.exec(p.rest)?.[1] }, ctx) },
+  { name: "fix", desc: "home.cmd.fix", run: (_p, ctx) => fixCommand({}, ctx) },
+  { name: "init", args: "[shell]", desc: "home.cmd.init", run: (p, ctx) => initCommand(p.args[0], {}, ctx) },
   { name: "dash", desc: "cli.dash", run: (_p, ctx) => dashCommand({}, ctx) },
   { name: "top", desc: "cli.top", run: (_p, ctx) => dashCommand({ view: "processes" }, ctx) },
   { name: "ports", args: "[port] [--kill] [--all]", desc: "cli.ports", run: (p, ctx) => portsCommand(p.args[0], { all: has(p, "--all", "-a"), kill: has(p, "--kill", "-k"), yes: has(p, "--yes", "-y"), udp: has(p, "--udp", "-u"), pick: has(p, "--pick", "-i") }, ctx) },
@@ -135,7 +148,7 @@ function findCommand(name: string): SlashCommand | undefined {
 
 // Commands that run when typed without "/" and followed only by argument-like words
 // (so "ports 3000" runs, while "clean up this function" still goes to the AI).
-const BARE_COMMANDS = new Set(["dash", "top", "ports", "kill", "clean", "doctor", "models", "model", "setup", "commit", "lang", "help"]);
+const BARE_COMMANDS = new Set(["dev", "fix", "init", "dash", "top", "ports", "kill", "clean", "doctor", "models", "model", "setup", "commit", "lang", "help"]);
 const ARG_LIKE = /^(-{1,2}[\w-]+|[\d,]+|[~./\\].*|[A-Za-z]:[\\/].*|[\w.-]+:[\w.-]+|vi|en)$/i;
 
 /**
@@ -260,7 +273,7 @@ export class Repl {
       for (const [i, s] of sugs.slice(0, 9).entries()) {
         const on = i === this.sugIndex;
         const name = fit("/" + s.name + (s.args ? " " + s.args : ""), 34);
-        const line = " " + (on ? c.brand(sym("pointer")) : " ") + " " + (on ? c.brandBold(name) : c.soft(name)) + " " + c.muted(t(s.desc));
+        const line = " " + (on ? c.brand(sym("pointer")) : " ") + " " + (on ? c.brandBold(name) : c.soft(name)) + " " + c.muted(t(s.desc, { key: FIX_KEY }));
         const row = truncate(line, W - 3);
         lines.push("  " + (on && chalk.level > 0 ? chalk.bgHex(P.selectBg)(padEnd(row, W - 3)) : row));
       }
@@ -426,8 +439,12 @@ export class Repl {
       if (trimmed.startsWith("!")) {
         const line = trimmed.slice(1).trim();
         if (line) {
-          const code = await runCommandLine(line, detectShell());
-          if (code !== 0) print(c.faint(`  ${sym("pointerSmall")} ${t("home.exitCode", { code: String(code ?? "?") })}  ·  ${t("home.explainHint", { cmd: cmd("/explain " + line) })}`));
+          const shell = detectShell();
+          const code = await runCommandLine(line, shell);
+          if (code !== 0) {
+            writeLastFailed({ code: code ?? 1, shell: shell.kind, cwd: process.cwd(), command: line });
+            print(c.faint(`  ${sym("pointerSmall")} ${t("home.exitCode", { code: String(code ?? "?") })}  ·  ${t("home.explainHint", { cmd: cmd("/fix") })}`));
+          }
         }
       } else {
         const slash = asCommand(trimmed);
@@ -481,7 +498,7 @@ export class Repl {
     blank();
     print(" " + c.tile(t("home.helpTitle").toUpperCase()));
     for (const x of COMMANDS) {
-      print(truncate("   " + c.brand(fit("/" + x.name + (x.args ? " " + x.args : ""), 36)) + "  " + c.muted(t(x.desc)), columns() - 1));
+      print(truncate("   " + c.brand(fit("/" + x.name + (x.args ? " " + x.args : ""), 36)) + "  " + c.muted(t(x.desc, { key: FIX_KEY })), columns() - 1));
     }
     blank();
     print(" " + c.tile(t("home.keysTitle").toUpperCase()));

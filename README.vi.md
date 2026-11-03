@@ -19,6 +19,7 @@
 
 ```bash
 npm install -g pikaclow
+pikaclow init      # một lần: để PikaClow bắt lệnh bị lỗi (Alt+Z)
 pikaclow
 ```
 
@@ -30,6 +31,14 @@ Giao diện tự nhận tiếng Việt theo hệ thống; hoặc dùng `pikaclow
 
 ## Điểm khác biệt
 
+- **Lệnh lỗi? Bấm Alt+Z.** Sau khi chạy `pikaclow init`, PowerShell, bash, zsh và fish sẽ nhớ lệnh gần nhất bị lỗi
+  và hiện một dòng gợi ý ngay bên dưới. Bấm Alt+Z (hoặc `pikaclow fix`) để chạy lại, đọc thông báo lỗi thật và
+  giải thích cách sửa; nếu nguyên nhân là cổng bị chiếm, nó giải phóng cổng rồi chạy lại. Hook chỉ là vài dòng
+  shell: không mở tiến trình Node mỗi lần hiện dấu nhắc, không chạy nền, và lệnh nguy hiểm không bao giờ bị chạy
+  lại khi chưa hỏi bạn.
+- **`pikaclow dev` chạy dự án trong một lệnh.** Tự chọn đúng trình quản lý gói, cài dependencies nếu thiếu, và khi
+  cổng 5173 đang bị *Vite của dự án khác* giữ, nó nói rõ và đề nghị dừng tiến trình đó hoặc chuyển sang 5174. Nếu
+  server bị lỗi, nó đề nghị giải thích nguyên nhân.
 - **Pixel art toàn bộ.** Logo, tiêu đề, khung, thanh đo, menu, nút bấm và thanh trạng thái đều được vẽ bằng pixel
   art sắc nét (ký tự nửa khối), tông vàng Pikachu; có chế độ dự phòng cho console đời cũ, nền sáng và ASCII.
 - **Màn hình tương tác.** Gõ `pikaclow` không kèm lệnh: ô nhập kiểu Gemini, menu lệnh `/`, lịch sử, `!lệnh` để chạy
@@ -57,6 +66,9 @@ Giao diện tự nhận tiếng Việt theo hệ thống; hoặc dùng `pikaclow
 | Lệnh | Chức năng |
 | --- | --- |
 | `pikaclow` | Chế độ tương tác (ô nhập, menu `/`, `!shell`, chat AI) |
+| `pikaclow init [shell]` | Tích hợp shell: nhớ lệnh bị lỗi, Alt+Z để giải thích · `--uninstall` · `--print` |
+| `pikaclow fix` | Chạy lại và giải thích lệnh vừa bị lỗi · `--yes` · `--no-ai` |
+| `pikaclow dev [script]` | Chạy dev server; tự xử lý cổng bị chiếm, cài dependencies còn thiếu · `--port` |
 | `pikaclow dash` · `top` | Dashboard: CPU, RAM, mạng, ổ đĩa, pin, tiến trình (sắp xếp, gộp nhóm, lọc, dừng) |
 | `pikaclow ports [cổng]` | Cổng đang mở, nhận diện ứng dụng/dự án · `--kill` · `--pick` · `--all` · `--json` |
 | `pikaclow clean [thư-mục]` | Tìm và xoá thư mục dev tạo lại được · `--dry-run` · `--caches` cho cache npm/pnpm/yarn/pip |
@@ -90,12 +102,16 @@ Cài đặt nằm ở `~/.pikaclow/config.json`. Một số biến môi trườn
 | `PIKACLOW_NO_ANIM=1` | Tắt hiệu ứng logo |
 | `NO_COLOR=1` | Tắt màu |
 | `PIKACLOW_DEBUG=1` | Hiện chi tiết lỗi |
+| `PIKACLOW_HINT=0` | Giữ tích hợp shell nhưng ẩn dòng gợi ý sau khi lệnh lỗi |
+| `PIKACLOW_NO_UPDATE_CHECK=1` | Không kiểm tra phiên bản mới trên npm |
 
 ## An toàn
 
 - `clean` xoá vĩnh viễn, nhưng chỉ những thư mục có thể tạo lại, và luôn hỏi trước (trừ khi dùng `--yes`).
 - `ports --kill` từ chối dừng tiến trình hệ điều hành và luôn hỏi trước khi dừng.
 - `sh` không bao giờ chạy lệnh khi chưa được bạn đồng ý; lệnh nguy hiểm phải gõ `yes`.
+- `fix` chỉ chạy lại khi bạn chọn; lệnh bị đánh dấu nguy hiểm không bao giờ tự chạy lại.
+- `init` chỉ thêm một khối có đánh dấu vào profile của shell, và `init --uninstall` gỡ đúng khối đó.
 - Không có dữ liệu nào bị gửi đi trừ khi bạn cấu hình API AI từ xa. Với Ollama, mọi thứ ở lại trên máy bạn.
 
 ## Phát triển

@@ -3,9 +3,10 @@ import { Command, Help } from "commander";
 import { loadConfig } from "./core/config.js";
 import { cliContext, isAbortError, type Ctx } from "./core/context.js";
 import { setLang, t, type MessageKey } from "./i18n/index.js";
+import { cmd, status } from "./ui/components.js";
 import { reportError } from "./ui/errors.js";
 import { print } from "./ui/print.js";
-import { isInteractive, restoreTerminal } from "./ui/terminal.js";
+import { isInteractive, isTTY, restoreTerminal } from "./ui/terminal.js";
 import { c, setGlyphs, setTheme } from "./ui/theme.js";
 import { fit } from "./ui/text.js";
 import { smallLogo } from "./ui/logo.js";
@@ -13,14 +14,19 @@ import { VERSION } from "./version.js";
 import { askCommand } from "./commands/ask.js";
 import { cleanCommand } from "./commands/clean.js";
 import { commitCommand } from "./commands/commit.js";
+import { devCommand } from "./commands/dev.js";
 import { dashCommand } from "./commands/dash.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { explainCommand } from "./commands/explain.js";
+import { fixCommand } from "./commands/fix.js";
 import { homeCommand } from "./commands/home.js";
+import { initCommand } from "./commands/init.js";
 import { modelsCommand } from "./commands/models.js";
 import { portsCommand } from "./commands/ports.js";
 import { setupCommand } from "./commands/setup.js";
 import { shCommand } from "./commands/sh.js";
+import { FIX_KEY } from "./core/hook.js";
+import { availableUpdate, runUpdateCheck, scheduleUpdateCheck, shouldShowNotice, UPDATE_COMMAND } from "./core/update.js";
 
 // ── Settings from config, env and global flags (before anything renders) ───────
 const config = loadConfig();
@@ -31,6 +37,8 @@ const langAt = argv.findIndex((a) => a === "--lang" || a.startsWith("--lang="));
 const langValue = langAt > 0 ? (argv[langAt]!.includes("=") ? argv[langAt]!.split("=")[1] : argv[langAt + 1]) : undefined;
 if (langValue === "vi" || langValue === "en") setLang(langValue);
 if (argv.includes("--ascii")) setGlyphs("ascii");
+const quietRun = argv.includes(UPDATE_COMMAND) || argv.includes("--json") || argv.includes("--print");
+if (!quietRun) scheduleUpdateCheck();
 
 /** Wraps a command action: cancellation context, friendly errors, exit code. */
 function action<A extends unknown[]>(fn: (ctx: Ctx, ...args: A) => Promise<void>) {
@@ -50,6 +58,14 @@ function action<A extends unknown[]>(fn: (ctx: Ctx, ...args: A) => Promise<void>
 
 // ── Help ───────────────────────────────────────────────────────────────────────
 const GROUPS: { title: MessageKey; commands: [string, MessageKey][] }[] = [
+  {
+    title: "help.workflow",
+    commands: [
+      ["dev [script]", "cli.dev"],
+      ["fix", "cli.fix"],
+      ["init [shell]", "cli.init"],
+    ],
+  },
   {
     title: "help.system",
     commands: [
@@ -79,7 +95,7 @@ function rootHelp(): string {
   lines.push(" " + c.bold(t("help.usage")) + "  " + c.brand("pikaclow") + c.soft(" [command] [options]") + c.faint("   (" + t("help.interactive") + ")"), "");
   for (const g of GROUPS) {
     lines.push(" " + c.bold(t(g.title)));
-    for (const [name, desc] of g.commands) lines.push("   " + c.brand(fit(name, 20)) + c.muted(t(desc)));
+    for (const [name, desc] of g.commands) lines.push("   " + c.brand(fit(name, 20)) + c.muted(t(desc, { key: FIX_KEY })));
     lines.push("");
   }
   lines.push(" " + c.bold(t("help.options")));
@@ -91,7 +107,7 @@ function rootHelp(): string {
   ];
   for (const [o, d] of opts) lines.push("   " + c.soft(fit(o, 20)) + c.muted(d ? t(d) : "version"));
   lines.push("", " " + c.bold(t("help.examples")));
-  for (const ex of ["pikaclow ports 3000 --kill", "pikaclow clean ~/code", "pikaclow explain -- npm run build", 'pikaclow sh "find files bigger than 100MB"', "git add . && pikaclow commit"]) {
+  for (const ex of ["pikaclow dev", "pikaclow init", "pikaclow ports 3000 --kill", "pikaclow clean ~/code", "pikaclow explain -- npm run build", 'pikaclow sh "find files bigger than 100MB"', "git add . && pikaclow commit"]) {
     lines.push("   " + c.faint("$ ") + ex);
   }
   lines.push("", " " + c.faint(t("help.more", { cmd: "pikaclow <command> --help" })), "");
@@ -141,6 +157,30 @@ function distance(a: string, b: string): number {
       d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
   return d[a.length]![b.length]!;
 }
+
+program
+  .command("dev [script]")
+  .description(t("cli.dev"))
+  .option("-p, --port <port>", t("cli.opt.port"))
+  .option("-y, --yes", t("cli.opt.yes"))
+  .action(action((ctx, script: string | undefined, opts) => devCommand(script, opts, ctx)));
+
+program
+  .command("fix")
+  .description(t("cli.fix"))
+  .option("-y, --yes", t("cli.opt.yes"))
+  .option("--no-ai", t("cli.opt.noAi"))
+  .action(action((ctx, opts) => fixCommand(opts, ctx)));
+
+program
+  .command("init [shell]")
+  .description(t("cli.init", { key: FIX_KEY }))
+  .option("--print", t("cli.opt.print"))
+  .option("--uninstall", t("cli.opt.uninstall"))
+  .option("-y, --yes", t("cli.opt.yes"))
+  .action(action((ctx, shell: string | undefined, opts) => initCommand(shell, opts, ctx)));
+
+program.command(UPDATE_COMMAND, { hidden: true }).action(() => runUpdateCheck());
 
 program
   .command("dash")
@@ -238,4 +278,10 @@ try {
 } catch (e) {
   reportError(e);
   process.exitCode = 1;
+}
+
+// The interactive mode shows this in its banner; one-shot commands show it at the end.
+const latest = !quietRun && argv.length > 2 && isTTY() ? availableUpdate() : null;
+if (latest && shouldShowNotice(latest)) {
+  print(status.info(t("update.available", { latest, current: VERSION })) + "  " + c.muted(t("update.how", { cmd: cmd("npm install -g pikaclow@latest") })));
 }
