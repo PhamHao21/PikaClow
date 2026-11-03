@@ -60,3 +60,20 @@ test("compareVersions orders releases and prereleases", () => {
   assert.equal(compareVersions("1.0.0", "1.0.0-beta.2"), 1);
   assert.equal(compareVersions("v2.0.0", "1.9.9"), 1);
 });
+
+test("launcher runs the JS behind a Windows .cmd shim, so Ctrl+C is not caught by cmd", { skip: process.platform !== "win32" }, async () => {
+  const { launcher } = await import("../../src/commands/dev.js");
+  const dir = mkdtempSync(join(os.tmpdir(), "pika-shim-"));
+  const saved = process.env.PATH;
+  try {
+    mkdirSync(join(dir, "node_modules", "fakepm", "bin"), { recursive: true });
+    writeFileSync(join(dir, "node_modules", "fakepm", "bin", "fakepm.cjs"), "");
+    // The shape npm's cmd-shim writes for global installs.
+    writeFileSync(join(dir, "fakepm-shim-test.cmd"), '@ECHO off\r\nGOTO start\r\n:start\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\fakepm\\bin\\fakepm.cjs" %*\r\n');
+    process.env.PATH = dir + ";" + saved;
+    assert.deepEqual(launcher("fakepm-shim-test"), { exe: process.execPath, pre: [join(dir, "node_modules", "fakepm", "bin", "fakepm.cjs")] });
+  } finally {
+    process.env.PATH = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

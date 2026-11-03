@@ -37,7 +37,8 @@ const fishSingle = (s: string) => "'" + s.replace(/\\/g, "\\\\").replace(/'/g, "
  */
 export function shellPath(shell: HookShell, abs: string, home = os.homedir()): string {
   const rel = relative(home, abs);
-  const inside = rel && !rel.startsWith("..") && !isAbsolute(rel);
+  // isAbsolute(abs): on Linux "C:\x" is a relative name and must not be resolved against cwd.
+  const inside = isAbsolute(abs) && rel && !rel.startsWith("..") && !isAbsolute(rel);
   if (shell === "powershell" || shell === "pwsh") {
     return inside ? `"$HOME\\${rel.replace(/\//g, "\\").replace(/[`$"]/g, "`$&")}"` : psSingle(abs);
   }

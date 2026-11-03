@@ -1,7 +1,9 @@
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { onInterrupt, type Ctx } from "../core/context.js";
-import { which } from "../core/exec.js";
+import { isWindows, which } from "../core/exec.js";
 import { tildify } from "../core/format.js";
 import { canBind, findFreePort, killProcess, listPorts, type PortEntry } from "../core/ports.js";
 import { detectFramework, findProject, installCommand, pickScript, runArgs, type Framework, type Project } from "../core/project.js";
@@ -23,8 +25,28 @@ export interface DevOptions {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const quote = (s: string) => (/^[\w.:@/=-]+$/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`);
 
-/** Runs a command line in the user's shell with the terminal handed over to it. */
-async function runAttached(line: string, cwd: string, env: Record<string, string> = {}): Promise<{ code: number | null; interrupted: boolean }> {
+/**
+ * How to start a package manager. On Windows npm/pnpm/yarn are .cmd shims, and a batch
+ * file answers Ctrl+C with "Terminate batch job (Y/N)?"; running the JS entry the shim
+ * points to with node avoids that.
+ */
+export function launcher(pm: string): { exe: string; pre: string[] } | null {
+  const found = which(pm);
+  if (!found) return null;
+  if (!isWindows || /\.exe$/i.test(found)) return { exe: found, pre: [] };
+  try {
+    const scripts = [...readFileSync(found, "utf8").matchAll(/%~?dp0%?\\([^"%\r\n]+?\.c?js)\b/gi)].map((m) => join(dirname(found), m[1]!));
+    const js = scripts.find((p) => /cli\.c?js$/i.test(p) && existsSync(p)) ?? scripts.find((p) => existsSync(p));
+    if (js) return { exe: process.execPath, pre: [js] };
+  } catch {
+    // unreadable shim: fall back to the shell
+  }
+  return null;
+}
+
+/** Runs the package manager with the terminal handed over to it. */
+async function runAttached(pm: string, args: string[], cwd: string, env: Record<string, string> = {}): Promise<{ code: number | null; interrupted: boolean }> {
+  const line = [pm, ...args].map(quote).join(" ");
   print(c.faint(`${sym("pointer")} ${line}`));
   blank();
   let interrupted = false;
@@ -32,17 +54,32 @@ async function runAttached(line: string, cwd: string, env: Record<string, string
   const off = onInterrupt(() => {
     interrupted = true;
   });
-  const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
-  Object.assign(process.env, env);
+  const direct = launcher(pm);
   try {
-    const code = await withKeyboardReleased(() => runInShell(line, detectShell(), cwd));
+    const code = await withKeyboardReleased(
+      () =>
+        new Promise<number | null>((resolve) => {
+          if (!direct) {
+            const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+            Object.assign(process.env, env);
+            void runInShell(line, detectShell(), cwd)
+              .then(resolve)
+              .finally(() => {
+                for (const [k, v] of Object.entries(saved)) {
+                  if (v === undefined) delete process.env[k];
+                  else process.env[k] = v;
+                }
+              });
+            return;
+          }
+          const child = spawn(direct.exe, [...direct.pre, ...args], { cwd, stdio: "inherit", env: { ...process.env, ...env } });
+          child.on("error", () => resolve(null));
+          child.on("close", (code) => resolve(code));
+        }),
+    );
     return { code, interrupted };
   } finally {
     off();
-    for (const [k, v] of Object.entries(saved)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
   }
 }
 
@@ -159,7 +196,7 @@ export async function devCommand(scriptArg: string | undefined, opts: DevOptions
     const go = opts.yes || !isInteractive() ? true : await confirm({ message: t("dev.install", { cmd: install }), initial: true, signal: ctx.signal });
     if (isCancel(go)) return;
     if (go) {
-      const r = await runAttached(install, project.root);
+      const r = await runAttached(project.pm, ["install"], project.root);
       blank();
       if (r.code !== 0) {
         print(status.fail(t("dev.installFailed", { code: String(r.code ?? "?") })));
@@ -171,8 +208,9 @@ export async function devCommand(scriptArg: string | undefined, opts: DevOptions
 
   const plan = await planPort(project, fw, opts, ctx);
   if (!plan) return;
-  const line = [project.pm, ...runArgs(project.pm, script, plan.extra)].map(quote).join(" ");
-  const r = await runAttached(line, project.root, plan.env);
+  const args = runArgs(project.pm, script, plan.extra);
+  const line = [project.pm, ...args].map(quote).join(" ");
+  const r = await runAttached(project.pm, args, project.root, plan.env);
   blank();
   if (r.interrupted || r.code === 0 || r.code === 130) {
     print(status.ok(t("dev.stopped")));
