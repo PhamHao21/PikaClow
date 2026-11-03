@@ -17,7 +17,7 @@ import { LineEditor } from "../ui/line-editor.js";
 import { LiveRegion } from "../ui/live.js";
 import { bigLogo, centerLines, logoWidth, shinePositions, smallLogo } from "../ui/logo.js";
 import { blank, print } from "../ui/print.js";
-import { columns, hideCursor, isInteractive, isTTY, showCursor, write } from "../ui/terminal.js";
+import { columns, hideCursor, isInteractive, isTTY, setRawMode, showCursor, write } from "../ui/terminal.js";
 import chalk from "chalk";
 import { boxChars, c, gradientText, glyphs, mix, P, sym, themeName } from "../ui/theme.js";
 import { fit, padEnd, truncate, width } from "../ui/text.js";
@@ -175,6 +175,9 @@ export class Repl {
   private submit: ((v: string | null) => void) | null = null;
 
   async start(): Promise<void> {
+    // Raw mode right away (stdin stays paused): keys typed while the banner draws wait in
+    // the buffer instead of being echoed by the tty and having Enter turned into a newline.
+    setRawMode(true);
     await this.loadHistory();
     await printBanner();
     printTips();
