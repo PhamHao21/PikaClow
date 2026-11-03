@@ -1,0 +1,22 @@
+// Raw ANSI/VT escape sequences used across the UI.
+export const ansi = {
+  hideCursor: "\x1b[?25l",
+  showCursor: "\x1b[?25h",
+  altScreenOn: "\x1b[?1049h",
+  altScreenOff: "\x1b[?1049l",
+  pasteOn: "\x1b[?2004h",
+  pasteOff: "\x1b[?2004l",
+  syncStart: "\x1b[?2026h",
+  syncEnd: "\x1b[?2026l",
+  home: "\x1b[H",
+  clearScreen: "\x1b[2J",
+  clearScrollback: "\x1b[3J",
+  clearDown: "\x1b[J",
+  clearLine: "\x1b[2K",
+  clearEol: "\x1b[K",
+  reset: "\x1b[0m",
+  up: (n: number) => (n > 0 ? `\x1b[${n}A` : ""),
+  down: (n: number) => (n > 0 ? `\x1b[${n}B` : ""),
+  column: (n: number) => `\x1b[${Math.max(1, n)}G`,
+  to: (row: number, col: number) => `\x1b[${row};${col}H`,
+} as const;

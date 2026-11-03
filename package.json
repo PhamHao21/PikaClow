@@ -1,0 +1,61 @@
+{
+  "name": "pikaclow",
+  "version": "1.0.0",
+  "description": "Electric terminal sidekick: live system dashboard, port finder/killer, safe dev-junk cleaner, dev-environment doctor and local-AI helpers (commit messages, shell commands, error explanations).",
+  "type": "module",
+  "bin": {
+    "pikaclow": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs unit",
+    "test:e2e": "node scripts/run-tests.mjs e2e",
+    "test:all": "node scripts/run-tests.mjs unit e2e",
+    "snap": "tsx scripts/snap.ts",
+    "prepublishOnly": "npm run typecheck && npm run build && npm test",
+    "screenshots": "tsx scripts/screenshots.ts"
+  },
+  "keywords": [
+    "cli",
+    "terminal",
+    "tui",
+    "dashboard",
+    "system-monitor",
+    "ports",
+    "kill-port",
+    "node_modules",
+    "cleaner",
+    "ollama",
+    "local-ai",
+    "llm",
+    "commit-message",
+    "windows"
+  ],
+  "author": "PhamHao21",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "fast-string-truncated-width": "^3.0.3",
+    "fast-string-width": "^3.0.2",
+    "fast-wrap-ansi": "^0.2.2",
+    "systeminformation": "^5.33.13"
+  },
+  "devDependencies": {
+    "@lydell/node-pty": "^1.2.0-beta.15",
+    "@types/node": "^25.9.1",
+    "@xterm/headless": "^6.0.0",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}
